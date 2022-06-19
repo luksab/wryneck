@@ -1,0 +1,96 @@
+use std::str::FromStr;
+use crate::ast::*;
+use lalrpop_util::ErrorRecovery;
+
+grammar<'err>(errors: &'err mut Vec<ErrorRecovery<usize, Token<'input>, &'static str>>);
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None=> v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
+Tier<Op,NextTier>: Box<Expression<'input>> = {
+    Tier<Op,NextTier> Op NextTier => Box::new(Expression::Op(<>)),
+    NextTier
+};
+
+// Main expression grammar
+
+pub Program: Vec<Function<'input>> = {
+    (<Function>)* => <>
+}
+
+// Function grammar
+
+Function: Function<'input> = {
+    <definition: FunctionDefinition> <body:Expression> <tests:Tests> => Function {
+        definition: definition,
+        body: body,
+        tests: tests,
+    }
+};
+
+FunctionDefinition: FunctionDefinition<'input> = {
+    "fn " <name:r"[a-zA-Z]\w+"> "(" <params:(Parameter)*> ")" => FunctionDefinition {
+        name: name,
+        params: params,
+    }
+};
+
+Parameter: Parameter<'input> = {
+    <name:r"[a-zA-Z]\w+"> => Parameter {
+        name: name,
+    }
+};
+
+Tests: Vec<Test<'input>> = {
+    "[" <test:(Test)*> "]" => <>,
+    ! => vec![],
+};
+
+Test: Test<'input> = {
+    <input_expr:Expression> "=" <output_expr:Expression> ","? => Test {
+        input: input_expr,
+        output: output_expr,
+    }
+};
+
+// Expression grammar
+Statement: Statement<'input> = {
+    "let " <name:r"[a-zA-Z]\w+"> "=" <e:Expression> ";" => 
+        Statement::Let(Let{name, value: e}),
+    "*)>" <e:Expression> ";" => Statement::Return(e),
+};
+
+
+// --------------- math -------------------------------------------------------
+
+Expression = Tier<ExprOp, Factor>;
+Factor = Tier<FactorOp, Expr>;
+
+ExprOp: Opcode = {
+    "+" => Opcode::Add,
+    "-" => Opcode::Sub,
+};
+
+FactorOp: Opcode = {
+    "*" => Opcode::Mul,
+    "/" => Opcode::Div,
+};
+
+Expr: Box<Expression<'input>> = {
+    Num => Box::new(Expression::Number(<>)),
+    "(" <Expression> ")",
+    "{" <s:(Statement)*> "}" => Box::new(Expression::Block(s)),
+    ! => { errors.push(<>); Box::new(Expression::Error) },
+};
+
+Num: i32 = {
+    r"[0-9]+" => i32::from_str(<>).unwrap()
+};
