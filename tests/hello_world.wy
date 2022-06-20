@@ -3,7 +3,7 @@ egg hatch() {
         let test = 420;
     };
     let y = count_Pigeons(test);
-    *)> (69 + 31) * 3;
+    *)> (69 + {*)>30 + 1;}) * 3;
 }
 
 🥚 count_Pigeons(pigeons) {
@@ -11,4 +11,5 @@ egg hatch() {
 }
 [
     2 = 0,
+    4 = 0,
 ]

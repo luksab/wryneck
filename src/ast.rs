@@ -1,19 +1,22 @@
-use colored::*;
-use std::fmt::{Debug, Display, Error, Formatter};
+use colored::Colorize;
+use std::fmt::{Debug, Display, Error};
+
+use crate::formatter::{Format, Formatter};
 
 #[derive(Debug)]
 pub struct Program<'input> {
     pub functions: Vec<Function<'input>>,
 }
 
-impl Display for Program<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
+impl Format for Program<'_> {
+    fn format(&self, fmt: &mut Formatter) {
         for func in &self.functions {
-            writeln!(fmt, "{}", func)?;
+            func.format(fmt);
         }
-        Ok(())
     }
 }
+
+// function -------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct Function<'input> {
@@ -22,32 +25,22 @@ pub struct Function<'input> {
     pub tests: Vec<Test<'input>>,
 }
 
-impl Display for Function<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(fmt, "{}", self.definition)?;
-        writeln!(fmt, "{}", self.body)?;
+impl Format for Function<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        self.definition.format(fmt);
+        self.body.format(fmt);
         if !self.tests.is_empty() {
-            writeln!(fmt, "[")?;
+            fmt.push_str_indented("[\n");
+            fmt.indent();
             for test in &self.tests {
-                writeln!(fmt, "   {},", test)?;
+                fmt.push_str_indented("");
+                test.format(fmt);
+                fmt.push_str(",\n");
             }
-            writeln!(fmt, "]")?;
+            fmt.unindent();
+            fmt.push_str_indented("]");
         }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct Test<'input> {
-    pub input: Box<Expression<'input>>,
-    pub output: Box<Expression<'input>>,
-}
-
-impl Display for Test<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(fmt, "{} = {}", self.input, self.output)?;
-        Ok(())
+        fmt.push_str("\n\n");
     }
 }
 
@@ -57,24 +50,24 @@ pub struct FunctionDefinition<'input> {
     pub params: Vec<Parameter<'input>>,
 }
 
-impl Display for FunctionDefinition<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
+impl Format for FunctionDefinition<'_> {
+    fn format(&self, fmt: &mut Formatter) {
         if self.name == "hatch" {
-            write!(fmt, "🥚 🐣(")?;
+            fmt.push_str_indented("🥚 🐣(");
         } else {
-            write!(fmt, "🥚 {}(", self.name)?;
+            fmt.push_str_indented("🥚 ");
+            fmt.push_str(self.name);
+            fmt.push_str("(");
         }
-        write!(
-            fmt,
-            "{}",
+        fmt.push_string(
             self.params
                 .iter()
                 .map(|param| format!("{}", param))
                 .collect::<Vec<_>>()
-                .join(", ")
-        )?;
-        write!(fmt, ") ")?;
-        Ok(())
+                .join(", "),
+        );
+
+        fmt.push_str(") ");
     }
 }
 
@@ -84,10 +77,92 @@ pub struct Parameter<'input> {
 }
 
 impl Display for Parameter<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
         write!(fmt, "{}", self.name)
     }
 }
+
+#[derive(Debug)]
+pub struct Test<'input> {
+    pub input: Box<Expression<'input>>,
+    pub output: Box<Expression<'input>>,
+}
+
+impl Format for Test<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        self.input.format(fmt);
+        fmt.push_str(" = ");
+        self.output.format(fmt);
+    }
+}
+
+// statements -----------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum Statement<'input> {
+    Let(Let<'input>),
+    Expression(Box<Expression<'input>>),
+    Return(Box<Expression<'input>>),
+    Error,
+}
+
+impl Format for Statement<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        match self {
+            Statement::Let(let_) => let_.format(fmt),
+            Statement::Expression(expr) => {
+                fmt.push_str("\n");
+                expr.format(fmt);
+                fmt.push_str(";\n");
+            }
+            Statement::Return(expr) => {
+                fmt.push_str("\n");
+                fmt.push_str_indented("🐔 ");
+                expr.format(fmt);
+                fmt.push_str(";");
+            }
+            Statement::Error => fmt.push_string_indented("error".red().to_string()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Let<'input> {
+    pub name: &'input str,
+    pub value: Box<Expression<'input>>,
+}
+
+impl Format for Let<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        fmt.push_str("\n");
+        fmt.push_str_indented("let ");
+        fmt.push_str(self.name);
+        fmt.push_str(" = ");
+        self.value.format(fmt);
+        fmt.push_str(";");
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionCall<'input> {
+    pub name: &'input str,
+    pub args: Vec<Box<Expression<'input>>>,
+}
+
+impl Format for FunctionCall<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        fmt.push_str(&format!("{}(", self.name));
+        for (i, arg) in self.args.iter().enumerate() {
+            if i > 0 {
+                fmt.push_str(", ");
+            }
+            arg.format(fmt);
+        }
+        fmt.push_str(")");
+    }
+}
+
+// expressions ----------------------------------------------------------------
 
 #[derive(Debug)]
 pub enum Expression<'input> {
@@ -100,76 +175,34 @@ pub enum Expression<'input> {
     Error,
 }
 
-impl Display for Expression<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
+impl Format for Expression<'_> {
+    fn format(&self, fmt: &mut Formatter) {
         match self {
-            Expression::Expression(expr) => write!(fmt, "{}", expr),
-            Expression::FunctionCall(func) => write!(fmt, "{}", func),
+            Expression::Expression(expr) => expr.format(fmt),
+            Expression::FunctionCall(func) => func.format(fmt),
             Expression::Block(block) => {
-                write!(fmt, "{{\n")?;
+                fmt.push_str("{");
+                fmt.indent();
                 for stmt in block {
-                    writeln!(fmt, "   {};", stmt)?;
+                    stmt.format(fmt);
                 }
-                write!(fmt, "}}")
+                fmt.unindent();
+                fmt.push_str("\n");
+                fmt.push_str_indented("}");
             }
-            Expression::Variable(var) => write!(fmt, "{}", var),
-            Expression::Number(num) => write!(fmt, "{}", num),
-            Expression::Op(lhs, op, rhs) => write!(fmt, "({} {} {})", lhs, op, rhs),
-            Expression::Error => write!(fmt, "error"),
+            Expression::Variable(var) => fmt.push_string(var.to_string()),
+            Expression::Number(num) => fmt.push_string(num.to_string()),
+            Expression::Op(lhs, op, rhs) => {
+                fmt.push_str("(");
+                lhs.format(fmt);
+                fmt.push_str(" ");
+                fmt.push_string(op.to_string());
+                fmt.push_str(" ");
+                rhs.format(fmt);
+                fmt.push_str(")");
+            }
+            Expression::Error => fmt.push_string("error".red().to_string()),
         }
-    }
-}
-
-#[derive(Debug)]
-pub enum Statement<'input> {
-    Let(Let<'input>),
-    Expression(Box<Expression<'input>>),
-    Return(Box<Expression<'input>>),
-    Error,
-}
-
-impl Display for Statement<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
-        match self {
-            Statement::Let(let_) => write!(fmt, "{}", let_),
-            Statement::Expression(expr) => write!(fmt, "{}", expr),
-            Statement::Return(expr) => write!(fmt, "🐔 {}", expr),
-            Statement::Error => write!(fmt, "{}", "error".red()),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Let<'input> {
-    pub name: &'input str,
-    pub value: Box<Expression<'input>>,
-}
-
-impl Display for Let<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(fmt, "let {} = {}", self.name, self.value)
-    }
-}
-
-#[derive(Debug)]
-pub struct FunctionCall<'input> {
-    pub name: &'input str,
-    pub args: Vec<Box<Expression<'input>>>,
-}
-
-impl Display for FunctionCall<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(fmt, "{}(", self.name)?;
-        write!(
-            fmt,
-            "{}",
-            self.args
-                .iter()
-                .map(|arg| format!("{}", arg))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )?;
-        write!(fmt, ")")
     }
 }
 
@@ -179,10 +212,12 @@ pub struct Variable<'input> {
 }
 
 impl Display for Variable<'_> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result<(), Error> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
         write!(fmt, "{}", self.name)
     }
 }
+
+// math -----------------------------------------------------------------------
 
 pub enum ExprSymbol<'input> {
     NumSymbol(&'input str),
@@ -199,7 +234,7 @@ pub enum Opcode {
 }
 
 impl<'input> Debug for ExprSymbol<'input> {
-    fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), Error> {
         use self::ExprSymbol::*;
         match *self {
             NumSymbol(n) => write!(fmt, "{:?}", n),
@@ -210,7 +245,7 @@ impl<'input> Debug for ExprSymbol<'input> {
 }
 
 impl Debug for Opcode {
-    fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), Error> {
         use self::Opcode::*;
         match *self {
             Mul => write!(fmt, "*"),
@@ -222,7 +257,7 @@ impl Debug for Opcode {
 }
 
 impl Display for Opcode {
-    fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), Error> {
         use self::Opcode::*;
         match *self {
             Mul => write!(fmt, "*"),

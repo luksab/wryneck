@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lalrpop_util;
 pub mod ast;
+pub mod formatter;
 use colored::*;
 use lalrpop_util::{lexer::Token, ErrorRecovery, ParseError};
 use structopt::StructOpt;
@@ -129,7 +130,8 @@ fn main() {
     match parse(&input) {
         Ok(ast) => {
             print_errs(&ast.1, &input);
-            print!("{}", ast.0);
+            // print!("{:#?}", ast.0);
+            print!("{}", formatter::format(ast.0));
         }
         Err(err) => {
             eprintln!("2{}", format!("{}", err).red());
