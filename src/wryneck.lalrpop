@@ -22,40 +22,43 @@ Tier<Op,NextTier>: Box<Expression<'input>> = {
 
 // Main expression grammar
 
-pub Program: Vec<Function<'input>> = {
-    (<Function>)* => <>
+pub Program: Program<'input> = {
+    (<Function>)* => Program{functions: <>}
 }
 
 // Function grammar
 
 Function: Function<'input> = {
-    <definition: FunctionDefinition> <body:Expression> <tests:Tests> => Function {
+    <definition: FunctionDefinition> <body:Expression> <tests:Tests?> => Function {
         definition: definition,
         body: body,
-        tests: tests,
+        tests: if let Some(tests) = tests { tests } else { vec![] }
     }
 };
 
 FunctionDefinition: FunctionDefinition<'input> = {
-    "fn " <name:r"[a-zA-Z]\w+"> "(" <params:(Parameter)*> ")" => FunctionDefinition {
+    "egg " <name:r"[a-zA-Z\{Emoji}][\w\{Emoji}]*"> "(" <params:(Parameter)*> ")" => FunctionDefinition {
+        name: name,
+        params: params,
+    },
+    "🥚 " <name:r"[a-zA-Z\{Emoji}][\w\{Emoji}]*"> "(" <params:(Parameter)*> ")" => FunctionDefinition {
         name: name,
         params: params,
     }
 };
 
 Parameter: Parameter<'input> = {
-    <name:r"[a-zA-Z]\w+"> => Parameter {
+    <name:r"[a-zA-Z\{Emoji}][\w\{Emoji}]*"> => Parameter {
         name: name,
     }
 };
 
 Tests: Vec<Test<'input>> = {
-    "[" <test:(Test)*> "]" => <>,
-    ! => vec![],
+    "[" <test:Comma<Test>> "]" => <>,
 };
 
 Test: Test<'input> = {
-    <input_expr:Expression> "=" <output_expr:Expression> ","? => Test {
+    <input_expr:Expression> "=" <output_expr:Expression> => Test {
         input: input_expr,
         output: output_expr,
     }
@@ -63,9 +66,19 @@ Test: Test<'input> = {
 
 // Expression grammar
 Statement: Statement<'input> = {
-    "let " <name:r"[a-zA-Z]\w+"> "=" <e:Expression> ";" => 
+    "let " <name:r"[a-zA-Z\{Emoji}][\w\{Emoji}]*"> "=" <e:Expression> ";" => 
         Statement::Let(Let{name, value: e}),
     "*)>" <e:Expression> ";" => Statement::Return(e),
+    "🐔" <e:Expression> ";" => Statement::Return(e),
+    <e:Expression> ";" => Statement::Expression(e),
+    ! => { errors.push(<>); Statement::Error },
+};
+
+FunctionCall: FunctionCall<'input> = {
+    <name:r"[a-zA-Z\{Emoji}][\w\{Emoji}]*"> "(" <args:Comma<Expression>> ")" => FunctionCall {
+        name: name,
+        args: args,
+    }
 };
 
 
@@ -88,6 +101,10 @@ Expr: Box<Expression<'input>> = {
     Num => Box::new(Expression::Number(<>)),
     "(" <Expression> ")",
     "{" <s:(Statement)*> "}" => Box::new(Expression::Block(s)),
+    <FunctionCall> => Box::new(Expression::FunctionCall(<>)),
+    r"[a-zA-Z\{Emoji}][\w\{Emoji}]*" => {
+        Box::new(Expression::Variable(Variable{name: <>}))
+    },
     ! => { errors.push(<>); Box::new(Expression::Error) },
 };
 
