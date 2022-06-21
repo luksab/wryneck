@@ -5,14 +5,52 @@ use crate::formatter::{Format, Formatter};
 
 #[derive(Debug)]
 pub struct Program<'input> {
-    pub functions: Vec<Function<'input>>,
+    pub things: Vec<TopLevel<'input>>,
 }
 
 impl Format for Program<'_> {
     fn format(&self, fmt: &mut Formatter) {
-        for func in &self.functions {
+        for func in &self.things {
             func.format(fmt);
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum TopLevel<'input> {
+    Function(Function<'input>),
+    Comment(Comment<'input>),
+}
+
+impl Format for TopLevel<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        match self {
+            TopLevel::Function(func) => func.format(fmt),
+            TopLevel::Comment(comment) => comment.format(fmt),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Comment<'input> {
+    pub text: &'input str,
+}
+
+impl<'input> Comment<'input> {
+    pub fn new(text: &'input str) -> Self {
+        // remove the // from the start of the comment
+        let text = &text[2..];
+        // remove any whitespace from the start of the comment
+        let text = text.trim_start();
+        Self { text }
+    }
+}
+
+impl Format for Comment<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        fmt.push_str_indented("// ");
+        fmt.push_str(self.text);
+        fmt.push_str("\n");
     }
 }
 
@@ -23,6 +61,19 @@ pub struct Function<'input> {
     pub definition: FunctionDefinition<'input>,
     pub body: Box<Expression<'input>>,
     pub tests: Vec<Test<'input>>,
+}
+
+impl<'input> Function<'input> {
+    pub fn comment(content: &'input str) -> Self {
+        Self {
+            definition: FunctionDefinition {
+                name: content,
+                params: Vec::new(),
+            },
+            body: Box::new(Expression::Error),
+            tests: Vec::new(),
+        }
+    }
 }
 
 impl Format for Function<'_> {
@@ -103,6 +154,7 @@ pub enum Statement<'input> {
     Let(Let<'input>),
     Expression(Box<Expression<'input>>),
     Return(Box<Expression<'input>>),
+    Comment(Comment<'input>),
     Error,
 }
 
@@ -111,17 +163,19 @@ impl Format for Statement<'_> {
         match self {
             Statement::Let(let_) => let_.format(fmt),
             Statement::Expression(expr) => {
-                fmt.push_str("\n");
+                fmt.push_str_indented("");
                 expr.format(fmt);
                 fmt.push_str(";\n");
             }
             Statement::Return(expr) => {
-                fmt.push_str("\n");
                 fmt.push_str_indented("🐔 ");
                 expr.format(fmt);
-                fmt.push_str(";");
+                fmt.push_str(";\n");
             }
-            Statement::Error => fmt.push_string_indented("error".red().to_string()),
+            Statement::Comment(comment) => {
+                comment.format(fmt)
+            }
+            Statement::Error => fmt.push_string_indented("error!\n".red().to_string()),
         }
     }
 }
@@ -134,12 +188,11 @@ pub struct Let<'input> {
 
 impl Format for Let<'_> {
     fn format(&self, fmt: &mut Formatter) {
-        fmt.push_str("\n");
         fmt.push_str_indented("let ");
         fmt.push_str(self.name);
         fmt.push_str(" = ");
         self.value.format(fmt);
-        fmt.push_str(";");
+        fmt.push_str(";\n");
     }
 }
 
@@ -171,7 +224,10 @@ pub enum Expression<'input> {
     FunctionCall(FunctionCall<'input>),
     Variable(Variable<'input>),
     Number(i32),
+    String(ASTString<'input>),
+    If(If<'input>),
     Op(Box<Expression<'input>>, Opcode, Box<Expression<'input>>),
+    ExpressionComment((Box<Expression<'input>>, Comment<'input>)),
     Error,
 }
 
@@ -181,17 +237,17 @@ impl Format for Expression<'_> {
             Expression::Expression(expr) => expr.format(fmt),
             Expression::FunctionCall(func) => func.format(fmt),
             Expression::Block(block) => {
-                fmt.push_str("{");
+                fmt.push_str("{\n");
                 fmt.indent();
                 for stmt in block {
                     stmt.format(fmt);
                 }
                 fmt.unindent();
-                fmt.push_str("\n");
                 fmt.push_str_indented("}");
             }
             Expression::Variable(var) => fmt.push_string(var.to_string()),
             Expression::Number(num) => fmt.push_string(num.to_string()),
+            Expression::String(str) => fmt.push_string(str.to_string()),
             Expression::Op(lhs, op, rhs) => {
                 fmt.push_str("(");
                 lhs.format(fmt);
@@ -200,6 +256,11 @@ impl Format for Expression<'_> {
                 fmt.push_str(" ");
                 rhs.format(fmt);
                 fmt.push_str(")");
+            }
+            Expression::If(if_) => if_.format(fmt),
+            Expression::ExpressionComment((expr, comment)) => {
+                expr.format(fmt);
+                comment.format(fmt);
             }
             Expression::Error => fmt.push_string("error".red().to_string()),
         }
@@ -214,6 +275,36 @@ pub struct Variable<'input> {
 impl Display for Variable<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
         write!(fmt, "{}", self.name)
+    }
+}
+
+#[derive(Debug)]
+pub struct ASTString<'input> {
+    pub value: &'input str,
+}
+
+impl<'input> Display for ASTString<'input> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
+        write!(fmt, "{}", self.value)
+    }
+}
+
+#[derive(Debug)]
+pub struct If<'input> {
+    pub condition: Box<Expression<'input>>,
+    pub body: Box<Expression<'input>>,
+    pub else_body: Option<Box<Expression<'input>>>,
+}
+
+impl Format for If<'_> {
+    fn format(&self, fmt: &mut Formatter) {
+        fmt.push_str("if ");
+        self.condition.format(fmt);
+        fmt.push_str(" ");
+        self.body.format(fmt);
+        if let Some(else_) = &self.else_body {
+            else_.format(fmt);
+        }
     }
 }
 

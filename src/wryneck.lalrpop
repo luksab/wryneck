@@ -4,6 +4,8 @@ use lalrpop_util::ErrorRecovery;
 
 grammar<'err>(errors: &'err mut Vec<ErrorRecovery<usize, Token<'input>, &'static str>>);
 
+
+
 Comma<T>: Vec<T> = {
     <v:(<T> ",")*> <e:T?> => match e {
         None=> v,
@@ -23,8 +25,20 @@ Tier<Op,NextTier>: Box<Expression<'input>> = {
 // Main expression grammar
 
 pub Program: Program<'input> = {
-    (<Function>)* => Program{functions: <>}
+    (<TopLevel>)* => Program{things: <>}
 }
+
+pub TopLevel: TopLevel<'input> = {
+    // <Declaration> => TopLevel::Declaration(<>),
+    <Function> => TopLevel::Function(<>),
+    Comment => TopLevel::Comment(<>),
+    // <Expression> => TopLevel::Expression(<>),
+    // <Statement> => TopLevel::Statement(<>),
+};
+
+pub Comment: Comment<'input> = {
+    r"//[^\n\r]*" => Comment::new(<>),
+};
 
 // Function grammar
 
@@ -33,7 +47,7 @@ Function: Function<'input> = {
         definition: definition,
         body: body,
         tests: if let Some(tests) = tests { tests } else { vec![] }
-    }
+    },
 };
 
 FunctionDefinition: FunctionDefinition<'input> = {
@@ -71,7 +85,32 @@ Statement: Statement<'input> = {
     "*)>" <e:Expression> ";" => Statement::Return(e),
     "🐔" <e:Expression> ";" => Statement::Return(e),
     <e:Expression> ";" => Statement::Expression(e),
+    Comment => Statement::Comment(<>),
     ! => { errors.push(<>); Statement::Error },
+};
+
+Expr: Box<Expression<'input>> = {
+    Num => Box::new(Expression::Number(<>)),
+    <s:r#""[^"]*""#> => Box::new(Expression::String(ASTString{value: <>})),
+    "(" <Expression> ")",
+    "{" <s:(Statement)*> "}" => Box::new(Expression::Block(s)),
+    // "{" <s:(Statement)*> <e:Expression> "}" => Box::new(Expression::Block(s)),
+    "if" <e:Expression> "{" <s:(Statement)*> "}" => {
+        Box::new(Expression::If(If {
+            condition: e, body: Box::new(Expression::Block(s)), else_body: None
+            }))
+    },
+    "if" <e:Expression> "{" <s:(Statement)*> "}" "else" "{" <se:(Statement)*> "}" => {
+        Box::new(Expression::If(If {
+            condition: e, body: Box::new(Expression::Block(s)), else_body: Some(Box::new(Expression::Block(se)))
+        }))
+    },
+    <FunctionCall> => Box::new(Expression::FunctionCall(<>)),
+    r"[a-zA-Z\{Emoji}][\w\{Emoji}]*" => {
+        Box::new(Expression::Variable(Variable{name: <>}))
+    },
+    // <expr: Expression> <comment: Comment> => Box::new(Expression::ExpressionComment(<expr>, <comment>)),
+    ! => { errors.push(<>); Box::new(Expression::Error) },
 };
 
 FunctionCall: FunctionCall<'input> = {
@@ -95,17 +134,6 @@ ExprOp: Opcode = {
 FactorOp: Opcode = {
     "*" => Opcode::Mul,
     "/" => Opcode::Div,
-};
-
-Expr: Box<Expression<'input>> = {
-    Num => Box::new(Expression::Number(<>)),
-    "(" <Expression> ")",
-    "{" <s:(Statement)*> "}" => Box::new(Expression::Block(s)),
-    <FunctionCall> => Box::new(Expression::FunctionCall(<>)),
-    r"[a-zA-Z\{Emoji}][\w\{Emoji}]*" => {
-        Box::new(Expression::Variable(Variable{name: <>}))
-    },
-    ! => { errors.push(<>); Box::new(Expression::Error) },
 };
 
 Num: i32 = {
