@@ -47,7 +47,7 @@ pub trait Format {
     fn format(&self, fmt: &mut Formatter);
 }
 
-pub fn format(input: Program) -> String {
+pub fn format(input: &Program) -> String {
     let mut formatter = Formatter {
         indent_level: 0,
         string: String::new(),

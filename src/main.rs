@@ -122,6 +122,10 @@ struct Opt {
     /// The input file
     #[structopt(parse(from_os_str))]
     input: std::path::PathBuf,
+
+    /// Print the AST
+    #[structopt(short, long)]
+    ast: bool,
 }
 
 fn main() {
@@ -130,8 +134,11 @@ fn main() {
     match parse(&input) {
         Ok(ast) => {
             print_errs(&ast.1, &input);
-            // print!("{:#?}", ast.0);
-            print!("{}", formatter::format(ast.0));
+            if opt.ast {
+                println!("{:#?}", ast.0);
+            } else {
+                print!("{}", formatter::format(&ast.0));
+            }
         }
         Err(err) => {
             eprintln!("2{}", format!("{}", err).red());
