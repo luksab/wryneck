@@ -2,6 +2,7 @@
 extern crate lalrpop_util;
 pub mod base_ast;
 pub mod formatter;
+pub mod resolved_ast;
 use std::ops::Range;
 
 use colored::*;
@@ -157,17 +158,120 @@ struct Opt {
 fn main() {
     let opt: Opt = Opt::from_args();
     let input = std::fs::read_to_string(opt.input).unwrap();
-    match parse(&input) {
+    let program = match parse(&input) {
         Ok(ast) => {
             print_parse_errs(&ast.1, &input);
-            if opt.ast {
-                println!("{:#?}", ast.0);
-            } else {
-                print!("{}", formatter::format(&ast.0));
-            }
+            // if opt.ast {
+            //     println!("{:#?}", ast.0);
+            // } else {
+            //     print!("{}", formatter::format(&ast.0));
+            // }
+            ast.0
         }
         Err(err) => {
             print_parse_error(&err, &input);
+            return;
         }
+    };
+    let program: resolved_ast::Program = program.into();
+
+    if opt.ast {
+        println!("{:#?}", program);
+    } else {
+        print!("{}", formatter::format(&program));
+    }
+}
+
+// Test the parser
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse() {
+        let input = r#"
+        egg hatch() {
+            // does this work?
+            let x = {
+                let test = 420; // testing
+            };
+        
+            let str = "hello";
+            "hello";
+        
+            if true {
+                if false {
+                    let x = 420;
+                } else {
+                    let x = "hello";
+                };
+                "world";
+            };
+        
+            let y = count_Pigeons(test);
+            *)> (69 + {*)>30 + 1;}) * 3;
+        }
+        // does things
+        🥚 count_Pigeons(pigeons) {
+            *)> 1;
+            // and stuffs
+        }
+        [
+            2 = 0,
+            4 = 0,
+        ]
+        
+        "#;
+        let program = match parse(&input) {
+            Ok(ast) => {
+                print_parse_errs(&ast.1, &input);
+                // if opt.ast {
+                //     println!("{:#?}", ast.0);
+                // } else {
+                //     print!("{}", formatter::format(&ast.0));
+                // }
+                ast.0
+            }
+            Err(err) => {
+                print_parse_error(&err, &input);
+                return;
+            }
+        };
+        let program: resolved_ast::Program = program.into();
+
+        let output = r#"🥚 🐣() {
+    // does this work?
+    let x = {
+        let test = 420;
+        // testing
+    };
+    let str = "hello";
+    "hello";
+    if true {
+        if false {
+            let x = 420;
+        }{
+            let x = "hello";
+        };
+        "world";
+    };
+    let y = count_Pigeons(test);
+    🐔 ((69 + {
+        🐔 (30 + 1);
+    }) * 3);
+}
+
+// does things
+🥚 count_Pigeons(pigeons) {
+    🐔 1;
+    // and stuffs
+}[
+    2 = 0,
+    4 = 0,
+]
+
+"#;
+
+        assert_eq!(formatter::format(&program), output);
     }
 }

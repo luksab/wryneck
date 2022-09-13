@@ -1,34 +1,57 @@
 use colored::Colorize;
+use id_collections::id_type;
+use id_collections::IdVec;
 use std::fmt::{Debug, Display, Error};
 
 use crate::formatter::{Format, Formatter};
 
+#[id_type]
+pub struct FunctionId(usize);
+
 #[derive(Debug)]
 pub struct Program<'input> {
     pub things: Vec<TopLevel<'input>>,
+    pub functions: IdVec<FunctionId, Function<'input>>,
 }
 
 impl Format for Program<'_> {
     fn format(&self, fmt: &mut Formatter) {
         for func in &self.things {
-            func.format(fmt);
+            match func {
+                TopLevel::Function(func) => self.functions[*func].format(fmt),
+                TopLevel::Comment(comment) => comment.format(fmt),
+            }
+        }
+    }
+}
+
+// convert from base_ast::Program to Program
+impl<'input> From<crate::base_ast::Program<'input>> for Program<'input> {
+    fn from(ast: crate::base_ast::Program<'input>) -> Self {
+        let mut functions = IdVec::new();
+        Program {
+            things: ast
+                .things
+                .into_iter()
+                .map(|thing| match thing {
+                    crate::base_ast::TopLevel::Function(func) => {
+                        let id = functions.push(Function::from(func));
+                        TopLevel::Function(id)
+                    }
+                    crate::base_ast::TopLevel::Comment(comment) => {
+                        TopLevel::Comment(comment.into())
+                    }
+                })
+                .collect::<Vec<_>>(),
+            functions,
         }
     }
 }
 
 #[derive(Debug)]
 pub enum TopLevel<'input> {
-    Function(Function<'input>),
+    Function(FunctionId),
     Comment(Comment<'input>),
-}
-
-impl Format for TopLevel<'_> {
-    fn format(&self, fmt: &mut Formatter) {
-        match self {
-            TopLevel::Function(func) => func.format(fmt),
-            TopLevel::Comment(comment) => comment.format(fmt),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -38,10 +61,6 @@ pub struct Comment<'input> {
 
 impl<'input> Comment<'input> {
     pub fn new(text: &'input str) -> Self {
-        // remove the // from the start of the comment
-        let text = &text[2..];
-        // remove any whitespace from the start of the comment
-        let text = text.trim_start();
         Self { text }
     }
 }
@@ -51,6 +70,12 @@ impl Format for Comment<'_> {
         fmt.push_str_indented("// ");
         fmt.push_str(self.text);
         fmt.push_str("\n");
+    }
+}
+
+impl<'input> From<crate::base_ast::Comment<'input>> for Comment<'input> {
+    fn from(ast: crate::base_ast::Comment<'input>) -> Self {
+        Self::new(ast.text)
     }
 }
 
@@ -95,6 +120,20 @@ impl Format for Function<'_> {
     }
 }
 
+impl<'input> From<crate::base_ast::Function<'input>> for Function<'input> {
+    fn from(ast: crate::base_ast::Function<'input>) -> Self {
+        Self {
+            definition: ast.definition.into(),
+            body: Box::new(ast.body.into()),
+            tests: ast
+                .tests
+                .into_iter()
+                .map(|test| test.into())
+                .collect::<Vec<_>>(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FunctionDefinition<'input> {
     pub name: &'input str,
@@ -122,6 +161,19 @@ impl Format for FunctionDefinition<'_> {
     }
 }
 
+impl<'input> From<crate::base_ast::FunctionDefinition<'input>> for FunctionDefinition<'input> {
+    fn from(ast: crate::base_ast::FunctionDefinition<'input>) -> Self {
+        Self {
+            name: ast.name,
+            params: ast
+                .params
+                .into_iter()
+                .map(|param| param.into())
+                .collect::<Vec<_>>(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Parameter<'input> {
     pub name: &'input str,
@@ -130,6 +182,12 @@ pub struct Parameter<'input> {
 impl Display for Parameter<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
         write!(fmt, "{}", self.name)
+    }
+}
+
+impl<'input> From<crate::base_ast::Parameter<'input>> for Parameter<'input> {
+    fn from(ast: crate::base_ast::Parameter<'input>) -> Self {
+        Self { name: ast.name }
     }
 }
 
@@ -144,6 +202,15 @@ impl Format for Test<'_> {
         self.input.format(fmt);
         fmt.push_str(" = ");
         self.output.format(fmt);
+    }
+}
+
+impl<'input> From<crate::base_ast::Test<'input>> for Test<'input> {
+    fn from(ast: crate::base_ast::Test<'input>) -> Self {
+        Self {
+            input: Box::new(ast.input.into()),
+            output: Box::new(ast.output.into()),
+        }
     }
 }
 
@@ -178,6 +245,18 @@ impl Format for Statement<'_> {
     }
 }
 
+impl<'input> From<crate::base_ast::Statement<'input>> for Statement<'input> {
+    fn from(ast: crate::base_ast::Statement<'input>) -> Self {
+        match ast {
+            crate::base_ast::Statement::Let(let_) => Self::Let(let_.into()),
+            crate::base_ast::Statement::Expression(expr) => Self::Expression(Box::new(expr.into())),
+            crate::base_ast::Statement::Return(expr) => Self::Return(Box::new(expr.into())),
+            crate::base_ast::Statement::Comment(comment) => Self::Comment(comment.into()),
+            crate::base_ast::Statement::Error => Self::Error,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Let<'input> {
     pub name: &'input str,
@@ -191,6 +270,15 @@ impl Format for Let<'_> {
         fmt.push_str(" = ");
         self.value.format(fmt);
         fmt.push_str(";\n");
+    }
+}
+
+impl<'input> From<crate::base_ast::Let<'input>> for Let<'input> {
+    fn from(ast: crate::base_ast::Let<'input>) -> Self {
+        Self {
+            name: ast.name,
+            value: Box::new(ast.value.into()),
+        }
     }
 }
 
@@ -210,6 +298,19 @@ impl Format for FunctionCall<'_> {
             arg.format(fmt);
         }
         fmt.push_str(")");
+    }
+}
+
+impl<'input> From<crate::base_ast::FunctionCall<'input>> for FunctionCall<'input> {
+    fn from(ast: crate::base_ast::FunctionCall<'input>) -> Self {
+        Self {
+            name: ast.name,
+            args: ast
+                .args
+                .into_iter()
+                .map(|arg| Box::new(arg.into()))
+                .collect::<Vec<_>>(),
+        }
     }
 }
 
@@ -265,6 +366,40 @@ impl Format for Expression<'_> {
     }
 }
 
+impl<'input> From<crate::base_ast::Expression<'input>> for Expression<'input> {
+    fn from(ast: crate::base_ast::Expression<'input>) -> Self {
+        match ast {
+            crate::base_ast::Expression::Expression(expr) => {
+                Self::Expression(Box::new(expr.into()))
+            }
+            crate::base_ast::Expression::Block(block) => Self::Block(
+                block
+                    .into_iter()
+                    .map(|stmt| stmt.into())
+                    .collect::<Vec<_>>(),
+            ),
+            crate::base_ast::Expression::FunctionCall(func) => Self::FunctionCall(func.into()),
+            crate::base_ast::Expression::Variable(var) => Self::Variable(var.into()),
+            crate::base_ast::Expression::Number(num) => Self::Number(num),
+            crate::base_ast::Expression::String(str) => Self::String(str.into()),
+            crate::base_ast::Expression::If(if_) => Self::If(if_.into()),
+            crate::base_ast::Expression::Op(lhs, op, rhs) => {
+                Self::Op(Box::new(lhs.into()), op.into(), Box::new(rhs.into()))
+            }
+            crate::base_ast::Expression::ExpressionComment((expr, comment)) => {
+                Self::ExpressionComment((Box::new(expr.into()), comment.into()))
+            }
+            crate::base_ast::Expression::Error => Self::Error,
+        }
+    }
+}
+
+impl<'input> From<Box<crate::base_ast::Expression<'input>>> for Expression<'input> {
+    fn from(ast: Box<crate::base_ast::Expression<'input>>) -> Self {
+        Self::from(*ast)
+    }
+}
+
 #[derive(Debug)]
 pub struct Variable<'input> {
     pub name: &'input str,
@@ -276,6 +411,12 @@ impl Display for Variable<'_> {
     }
 }
 
+impl<'input> From<crate::base_ast::Variable<'input>> for Variable<'input> {
+    fn from(ast: crate::base_ast::Variable<'input>) -> Self {
+        Self { name: ast.name }
+    }
+}
+
 #[derive(Debug)]
 pub struct ASTString<'input> {
     pub value: &'input str,
@@ -284,6 +425,12 @@ pub struct ASTString<'input> {
 impl<'input> Display for ASTString<'input> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
         write!(fmt, "{}", self.value)
+    }
+}
+
+impl<'input> From<crate::base_ast::ASTString<'input>> for ASTString<'input> {
+    fn from(ast: crate::base_ast::ASTString<'input>) -> Self {
+        Self { value: ast.value }
     }
 }
 
@@ -306,20 +453,22 @@ impl Format for If<'_> {
     }
 }
 
+impl<'input> From<crate::base_ast::If<'input>> for If<'input> {
+    fn from(ast: crate::base_ast::If<'input>) -> Self {
+        Self {
+            condition: Box::new(ast.condition.into()),
+            body: Box::new(ast.body.into()),
+            else_body: ast.else_body.map(|else_| Box::new(else_.into())),
+        }
+    }
+}
+
 // math -----------------------------------------------------------------------
 
 pub enum ExprSymbol<'input> {
     NumSymbol(&'input str),
     Op(Box<ExprSymbol<'input>>, Opcode, Box<ExprSymbol<'input>>),
     Error,
-}
-
-#[derive(Copy, Clone)]
-pub enum Opcode {
-    Mul,
-    Div,
-    Add,
-    Sub,
 }
 
 impl<'input> Debug for ExprSymbol<'input> {
@@ -331,6 +480,37 @@ impl<'input> Debug for ExprSymbol<'input> {
             Error => write!(fmt, "{}", "error".red()),
         }
     }
+}
+
+impl<'input> Display for ExprSymbol<'input> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), Error> {
+        use self::ExprSymbol::*;
+        match *self {
+            NumSymbol(n) => write!(fmt, "{}", n),
+            Op(ref l, op, ref r) => write!(fmt, "({} {} {})", l, op, r),
+            Error => write!(fmt, "{}", "error".red()),
+        }
+    }
+}
+
+impl<'input> From<crate::base_ast::ExprSymbol<'input>> for ExprSymbol<'input> {
+    fn from(ast: crate::base_ast::ExprSymbol<'input>) -> Self {
+        match ast {
+            crate::base_ast::ExprSymbol::NumSymbol(num) => Self::NumSymbol(num),
+            crate::base_ast::ExprSymbol::Op(lhs, op, rhs) => {
+                Self::Op(Box::new((*lhs).into()), op.into(), Box::new((*rhs).into()))
+            }
+            crate::base_ast::ExprSymbol::Error => Self::Error,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum Opcode {
+    Mul,
+    Div,
+    Add,
+    Sub,
 }
 
 impl Debug for Opcode {
@@ -353,6 +533,17 @@ impl Display for Opcode {
             Div => write!(fmt, "/"),
             Add => write!(fmt, "+"),
             Sub => write!(fmt, "-"),
+        }
+    }
+}
+
+impl<'input> From<crate::base_ast::Opcode> for Opcode {
+    fn from(ast: crate::base_ast::Opcode) -> Self {
+        match ast {
+            crate::base_ast::Opcode::Mul => Self::Mul,
+            crate::base_ast::Opcode::Div => Self::Div,
+            crate::base_ast::Opcode::Add => Self::Add,
+            crate::base_ast::Opcode::Sub => Self::Sub,
         }
     }
 }
