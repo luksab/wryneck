@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate lalrpop_util;
-pub mod ast;
+pub mod base_ast;
 pub mod formatter;
 use std::ops::Range;
 
@@ -127,8 +127,10 @@ fn print_error_line(input: &str, range: Range<usize>) {
 
 fn parse(
     input: &str,
-) -> Result<(ast::Program, Vec<ErrorRecovery<usize, Token, &str>>), ParseError<usize, Token, &str>>
-{
+) -> Result<
+    (base_ast::Program, Vec<ErrorRecovery<usize, Token, &str>>),
+    ParseError<usize, Token, &str>,
+> {
     let mut errors = Vec::new();
     let ast = wryneck::ProgramParser::new().parse(&mut errors, input);
     let ast = match ast {

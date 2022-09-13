@@ -1,4 +1,4 @@
-use crate::ast::*;
+use crate::base_ast::*;
 
 pub struct Formatter {
     pub indent_level: usize,
